@@ -1,0 +1,6 @@
+version: 1
+
+mappings:
+  - integration: notion
+    target: document
+    parent: id:cc69bd0f-98d7-4d6e-8701-72d92a920cf5

@@ -1,0 +1,9 @@
+{
+  "name": "testmdspecdocs",
+  "private": true,
+  "scripts": {
+    "verify": "cd verify && npx tsx verify.ts",
+    "verify:now": "cd verify && NO_POLL=1 npx tsx verify.ts",
+    "verify:debug": "cd verify && NO_POLL=1 DEBUG=1 npx tsx verify.ts"
+  }
+}

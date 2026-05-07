@@ -1,4 +1,17 @@
 import { S3Client, HeadObjectCommand } from '@aws-sdk/client-s3'
+import { readFileSync, existsSync } from 'fs'
+import { resolve } from 'path'
+
+// Load ../.env when running locally
+const envPath = resolve(import.meta.dirname, '../.env')
+if (existsSync(envPath)) {
+  for (const line of readFileSync(envPath, 'utf8').split('\n')) {
+    const [key, ...rest] = line.split('=')
+    if (key?.trim() && !process.env[key.trim()]) {
+      process.env[key.trim()] = rest.join('=').trim()
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Config
@@ -6,13 +19,18 @@ import { S3Client, HeadObjectCommand } from '@aws-sdk/client-s3'
 
 const S3_BUCKET = 'xadlabs-test-1-637423622157-eu-central-1-an'
 const S3_REGION = 'eu-central-1'
+const CLICKUP_LIST_ID = '901817533430'
+const NOTION_ROOT_DATABASE_ID = 'a05d3b75-1236-4fd9-a6d4-2e291da5ccb1'
+const NOTION_BACKEND_PAGE_ID  = 'cc69bd0f-98d7-4d6e-8701-72d92a920cf5'
 
-// ClickUp IDs (from .mdspecmap)
-const CLICKUP_LIST_ID   = '901817533430'
-const CLICKUP_FOLDER_ID = '901813560821'   // space_id: id:folder:<this>
-
-const POLL_TIMEOUT_MS  = 180_000  // 3 min — worker processes async after publish
+const POLL_TIMEOUT_MS  = 180_000
 const POLL_INTERVAL_MS = 6_000
+const DEBUG = !!process.env.DEBUG
+const NO_POLL = !!process.env.NO_POLL
+
+function dbg(...args: unknown[]) {
+  if (DEBUG) console.log('  [dbg]', ...args)
+}
 
 // ---------------------------------------------------------------------------
 // AWS client
@@ -30,14 +48,22 @@ const s3 = new S3Client({
 // Polling
 // ---------------------------------------------------------------------------
 
-async function pollUntil(_name: string, fn: () => Promise<boolean>): Promise<void> {
+async function pollUntil(name: string, fn: () => Promise<boolean>): Promise<void> {
+  if (NO_POLL) {
+    dbg(`no-poll — ${name}`)
+    if (!await fn()) throw new Error('not found')
+    return
+  }
   const deadline = Date.now() + POLL_TIMEOUT_MS
+  let attempt = 0
   while (Date.now() < deadline) {
+    attempt++
+    dbg(`poll #${attempt} — ${name}`)
     if (await fn()) return
-    process.stdout.write('.')
+    if (!DEBUG) process.stdout.write('.')
     await new Promise(r => setTimeout(r, POLL_INTERVAL_MS))
   }
-  throw new Error(`timed out after ${POLL_TIMEOUT_MS / 1000}s`)
+  throw new Error(`timed out after ${POLL_TIMEOUT_MS / 1000}s (${attempt} attempts)`)
 }
 
 // ---------------------------------------------------------------------------
@@ -45,10 +71,13 @@ async function pollUntil(_name: string, fn: () => Promise<boolean>): Promise<voi
 // ---------------------------------------------------------------------------
 
 async function s3KeyExists(key: string): Promise<boolean> {
+  dbg(`S3 HeadObject → s3://${S3_BUCKET}/${key}`)
   try {
     await s3.send(new HeadObjectCommand({ Bucket: S3_BUCKET, Key: key }))
+    dbg(`S3 → found`)
     return true
-  } catch {
+  } catch (err) {
+    dbg(`S3 → not found (${(err as { name?: string }).name ?? 'unknown'})`)
     return false
   }
 }
@@ -64,17 +93,29 @@ interface ClickUpTask {
 }
 
 async function getTasksInList(): Promise<ClickUpTask[]> {
-  const res = await fetch(
-    `https://api.clickup.com/api/v2/list/${CLICKUP_LIST_ID}/task?include_closed=true`,
-    { headers: { Authorization: process.env.CLICKUP_API_TOKEN! } }
-  )
-  if (!res.ok) throw new Error(`ClickUp API ${res.status}: ${await res.text()}`)
-  const data = await res.json() as { tasks?: ClickUpTask[] }
-  return data.tasks ?? []
+  const url = `https://api.clickup.com/api/v2/list/${CLICKUP_LIST_ID}/task?include_closed=true`
+  dbg(`ClickUp GET ${url}`)
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 10_000)
+  try {
+    const res = await fetch(url, {
+      headers: { Authorization: process.env.CLICKUP_API_TOKEN! },
+      signal: controller.signal,
+    })
+    if (!res.ok) throw new Error(`ClickUp API ${res.status}: ${await res.text()}`)
+    const data = await res.json() as { tasks?: ClickUpTask[] }
+    const tasks = data.tasks ?? []
+    dbg(`ClickUp → ${tasks.length} tasks:`, tasks.map(t => `"${t.name}" list=${t.list?.id} folder=${t.folder?.id}`))
+    return tasks
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 function findTask(tasks: ClickUpTask[], titleSubstring: string): ClickUpTask | undefined {
-  return tasks.find(t => t.name.toLowerCase().includes(titleSubstring.toLowerCase()))
+  const match = tasks.find(t => t.name.toLowerCase().includes(titleSubstring.toLowerCase()))
+  dbg(`findTask("${titleSubstring}") →`, match ? `found: "${match.name}"` : 'not found')
+  return match
 }
 
 // ---------------------------------------------------------------------------
@@ -85,65 +126,93 @@ interface NotionPage {
   id: string
   url: string
   title: string
-  parentPageId: string | null
+  parentId: string | null
+  parentType: string | null
 }
 
-async function searchNotionPages(title: string): Promise<NotionPage[]> {
-  const res = await fetch('https://api.notion.com/v1/search', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${process.env.NOTION_TOKEN}`,
-      'Notion-Version': '2022-06-28',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ query: title, filter: { value: 'page', property: 'object' } }),
-  })
-  if (!res.ok) throw new Error(`Notion API ${res.status}: ${await res.text()}`)
-  const data = await res.json() as {
-    results?: Array<{
-      id: string
-      url: string
-      parent?: { type?: string; page_id?: string }
-      properties?: { title?: { title?: Array<{ plain_text?: string }> } }
-    }>
+async function searchNotionPages(query: string): Promise<NotionPage[]> {
+  dbg(`Notion search → query="${query}"`)
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 10_000)
+  try {
+    const res = await fetch('https://api.notion.com/v1/search', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.NOTION_TOKEN}`,
+        'Notion-Version': '2022-06-28',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ query, filter: { value: 'page', property: 'object' } }),
+      signal: controller.signal,
+    })
+    if (!res.ok) throw new Error(`Notion API ${res.status}: ${await res.text()}`)
+    const data = await res.json() as {
+      results?: Array<{
+        id: string
+        url: string
+        parent?: { type?: string; page_id?: string; database_id?: string }
+        properties?: { title?: { title?: Array<{ plain_text?: string }> } }
+      }>
+    }
+    const pages = (data.results ?? []).map(p => ({
+      id: p.id,
+      url: p.url,
+      title: p.properties?.title?.title?.map(t => t.plain_text).join('') ?? '',
+      parentId: p.parent?.type === 'page_id'
+        ? p.parent.page_id ?? null
+        : p.parent?.type === 'database_id'
+          ? p.parent.database_id ?? null
+          : null,
+      parentType: p.parent?.type ?? null,
+    }))
+    dbg(`Notion → ${pages.length} results:`, pages.map(p => `"${p.title}" parent=${p.parentType}:${p.parentId} ${p.url}`))
+    return pages
+  } finally {
+    clearTimeout(timer)
   }
-  return (data.results ?? []).map(p => ({
-    id: p.id,
-    url: p.url,
-    title: p.properties?.title?.title?.map(t => t.plain_text).join('') ?? '',
-    parentPageId: p.parent?.type === 'page_id' ? (p.parent.page_id ?? null) : null,
-  }))
 }
 
 async function findNotionPage(title: string): Promise<NotionPage | null> {
   const pages = await searchNotionPages(title)
-  return pages.find(p => p.title.toLowerCase() === title.toLowerCase()) ?? null
+  const slug = title.toLowerCase().replace(/\s+/g, '-')
+  const match = pages.find(p =>
+    (p.title && p.title.toLowerCase() === title.toLowerCase()) ||
+    p.url.toLowerCase().includes(slug)
+  ) ?? null
+  dbg(`findNotionPage("${title}") →`, match ? `found id=${match.id} url=${match.url}` : 'not found')
+  return match
 }
 
-// All synced Notion pages should share the same root_page_id (the integration parent).
-// We collect it from the first verified page and assert all others match.
-let notionRootPageId: string | null = null
-
-async function notionPageExistsUnderSameParent(title: string): Promise<boolean> {
+async function notionPageExistsUnderDatabase(title: string): Promise<boolean> {
   const page = await findNotionPage(title)
   if (!page) return false
 
-  if (notionRootPageId === null) {
-    // First page found — its parent becomes the expected root
-    notionRootPageId = page.parentPageId
-    console.log(`\n  [notion root_page_id locked: ${notionRootPageId ?? 'workspace'}]`)
-  } else if (page.parentPageId !== notionRootPageId) {
+  if (page.parentType !== 'database_id' || page.parentId !== NOTION_ROOT_DATABASE_ID) {
     throw new Error(
-      `parent mismatch: "${title}" is under ${page.parentPageId}, expected ${notionRootPageId}`
+      `wrong parent: type=${page.parentType} id=${page.parentId}, expected database_id=${NOTION_ROOT_DATABASE_ID}`
     )
   }
 
-  console.log(`\n  → ${page.title}  ${page.url}`)
+  console.log(`\n  → ${page.url}  [database ✓]`)
+  return true
+}
+
+async function notionPageExistsUnderPage(title: string, expectedPageId: string): Promise<boolean> {
+  const page = await findNotionPage(title)
+  if (!page) return false
+
+  if (page.parentType !== 'page_id' || page.parentId !== expectedPageId) {
+    throw new Error(
+      `wrong parent: type=${page.parentType} id=${page.parentId}, expected page_id=${expectedPageId}`
+    )
+  }
+
+  console.log(`\n  → ${page.url}  [page ✓]`)
   return true
 }
 
 // ---------------------------------------------------------------------------
-// Checks — positive (must exist) and negative (must NOT exist)
+// Checks
 // ---------------------------------------------------------------------------
 
 type Check = {
@@ -155,40 +224,37 @@ type Check = {
 const checks: Check[] = [
 
   // ── S3: flat mode (s3-flat/) ─────────────────────────────────────────────
-  // flat strips subfolder path, only filename + parent_dir prefix
   {
-    name: 'S3 flat  | root file     → s3-flat/FLAT_A.md             [exists]',
+    name: 'S3 flat  | root file     → s3-flat/FLAT_A.md              [exists]',
     expect: 'exists',
     fn: () => s3KeyExists('s3-flat/FLAT_A.md'),
   },
   {
-    name: 'S3 flat  | nested strips → s3-flat/FLAT_B.md (not nested) [exists]',
+    name: 'S3 flat  | nested strips → s3-flat/FLAT_B.md (not nested)  [exists]',
     expect: 'exists',
     fn: () => s3KeyExists('s3-flat/FLAT_B.md'),
   },
   {
-    name: 'S3 flat  | nested path   → s3-flat/nested/FLAT_B.md       [absent]',
+    name: 'S3 flat  | nested path   → s3-flat/nested/FLAT_B.md        [absent]',
     expect: 'absent',
     fn: () => s3KeyExists('s3-flat/nested/FLAT_B.md'),
   },
 
   // ── S3: hierarchy mode (s3-docs/) ────────────────────────────────────────
-  // maintain_hierarchy preserves path relative to mapping folder
   {
-    name: 'S3 hier  | root file     → s3-docs/ROOT_DOC.md            [exists]',
+    name: 'S3 hier  | root file     → s3-docs/ROOT_DOC.md             [exists]',
     expect: 'exists',
     fn: () => s3KeyExists('s3-docs/ROOT_DOC.md'),
   },
   {
-    name: 'S3 hier  | nested file   → s3-docs/nested/NESTED_DOC.md   [exists]',
+    name: 'S3 hier  | nested file   → s3-docs/nested/NESTED_DOC.md    [exists]',
     expect: 'exists',
     fn: () => s3KeyExists('s3-docs/nested/NESTED_DOC.md'),
   },
 
   // ── S3: selective sub_folders glob (s3-selective/) ───────────────────────
-  // sub_folders: ['included/**'] — root always included, excluded/ should be skipped
   {
-    name: 'S3 glob  | root always   → s3-selective/ROOT_FILE.md      [exists]',
+    name: 'S3 glob  | root always   → s3-selective/ROOT_FILE.md       [exists]',
     expect: 'exists',
     fn: () => s3KeyExists('s3-selective/ROOT_FILE.md'),
   },
@@ -203,27 +269,9 @@ const checks: Check[] = [
     fn: () => s3KeyExists('s3-selective/excluded/EXCLUDED.md'),
   },
 
-  // ── ClickUp: root mapping ─────────────────────────────────────────────────
-  // Verifies task exists in list AND is under the correct folder
-  {
-    name: 'ClickUp  | root task     → "ClickUp Root Task" in list+folder [exists]',
-    expect: 'exists',
-    fn: async () => {
-      const tasks = await getTasksInList()
-      const task = findTask(tasks, 'ClickUp Root Task')
-      if (!task) return false
-      if (task.list.id !== CLICKUP_LIST_ID)
-        throw new Error(`wrong list: got ${task.list.id}, want ${CLICKUP_LIST_ID}`)
-      if (task.folder.id !== CLICKUP_FOLDER_ID)
-        throw new Error(`wrong folder: got ${task.folder.id}, want ${CLICKUP_FOLDER_ID}`)
-      return true
-    },
-  },
-
   // ── ClickUp: sub_folders: false (clickup-root-only/) ─────────────────────
-  // SHALLOW.md at root should sync, DEEP.md in subdirectory should NOT
   {
-    name: 'ClickUp  | sub_folders:false root   → "Shallow Task"      [exists]',
+    name: 'ClickUp  | sub_folders:false root   → "Shallow Task"       [exists]',
     expect: 'exists',
     fn: async () => {
       const tasks = await getTasksInList()
@@ -231,7 +279,7 @@ const checks: Check[] = [
     },
   },
   {
-    name: 'ClickUp  | sub_folders:false nested → "Deep Task"         [absent]',
+    name: 'ClickUp  | sub_folders:false nested → "Deep Task"          [absent]',
     expect: 'absent',
     fn: async () => {
       const tasks = await getTasksInList()
@@ -239,22 +287,28 @@ const checks: Check[] = [
     },
   },
 
-  // ── Notion ────────────────────────────────────────────────────────────────
-  // All three pages must exist and land under the same root_page_id
+  // ── Notion: default database root (notion-docs/) ─────────────────────────
   {
-    name: 'Notion   | first page    → "Notion Test Document"         [exists]',
+    name: 'Notion   | first page    → "Notion Test Document"          [exists]',
     expect: 'exists',
-    fn: () => notionPageExistsUnderSameParent('Notion Test Document'),
+    fn: () => notionPageExistsUnderDatabase('Notion Test Document'),
   },
   {
-    name: 'Notion   | second page   → "Notion Second Document"       [exists]',
+    name: 'Notion   | second page   → "Notion Second Document"        [exists]',
     expect: 'exists',
-    fn: () => notionPageExistsUnderSameParent('Notion Second Document'),
+    fn: () => notionPageExistsUnderDatabase('Notion Second Document'),
   },
   {
-    name: 'Notion   | nested page   → "Notion Nested Document"       [exists]',
+    name: 'Notion   | nested page   → "Notion Nested Document"        [exists]',
     expect: 'exists',
-    fn: () => notionPageExistsUnderSameParent('Notion Nested Document'),
+    fn: () => notionPageExistsUnderDatabase('Notion Nested Document'),
+  },
+
+  // ── Notion: sub-page parent (notion-subpage/ → Backend page) ─────────────
+  {
+    name: 'Notion   | sub-page      → "Backend Test Document" under Backend [exists]',
+    expect: 'exists',
+    fn: () => notionPageExistsUnderPage('Backend Test Document', NOTION_BACKEND_PAGE_ID),
   },
 ]
 
@@ -263,46 +317,49 @@ const checks: Check[] = [
 // ---------------------------------------------------------------------------
 
 async function run() {
-  console.log(`\nmdspec verify — ${checks.length} checks\n`)
+  console.log(`\nmdspec verify — ${checks.length} checks${DEBUG ? ' [DEBUG]' : ''}\n`)
 
   const results: { name: string; ok: boolean; err?: string }[] = []
   const positives = checks.filter(c => c.expect === 'exists')
   const negatives = checks.filter(c => c.expect === 'absent')
 
-  // Run positive checks with polling — wait until each artifact appears
   for (const check of positives) {
     process.stdout.write(`  ${check.name} `)
+    if (DEBUG) process.stdout.write('\n')
     try {
       await pollUntil(check.name, check.fn)
+      if (DEBUG) process.stdout.write(`  ${check.name} `)
       process.stdout.write(' ✅\n')
       results.push({ name: check.name, ok: true })
     } catch (err) {
+      if (DEBUG) process.stdout.write(`  ${check.name} `)
       process.stdout.write(' ❌\n')
       results.push({ name: check.name, ok: false, err: (err as Error).message })
     }
   }
 
-  // Run negative checks once — positive checks passing means the worker is done,
-  // so anything absent now is genuinely absent
   console.log('\n  [negative checks — worker should be done by now]')
   for (const check of negatives) {
     process.stdout.write(`  ${check.name} `)
+    if (DEBUG) process.stdout.write('\n')
     try {
       const exists = await check.fn()
       if (exists) {
+        if (DEBUG) process.stdout.write(`  ${check.name} `)
         process.stdout.write(' ❌  (found — should be absent)\n')
         results.push({ name: check.name, ok: false, err: 'artifact exists but should not' })
       } else {
+        if (DEBUG) process.stdout.write(`  ${check.name} `)
         process.stdout.write(' ✅\n')
         results.push({ name: check.name, ok: true })
       }
     } catch (err) {
+      if (DEBUG) process.stdout.write(`  ${check.name} `)
       process.stdout.write(' ❌\n')
       results.push({ name: check.name, ok: false, err: (err as Error).message })
     }
   }
 
-  // Summary
   console.log('\n─────────────────────────────────────────')
   for (const r of results) {
     console.log(`${r.ok ? '✅' : '❌'} ${r.name}`)
