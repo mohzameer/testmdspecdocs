@@ -1,6 +1,9 @@
 version: 1
 
+sub_folders:
+  - included/**
+
 mappings:
   - integration: s3
     maintain_hierarchy: true
-    parent_dir: s3-docs
+    parent_dir: s3-selective
