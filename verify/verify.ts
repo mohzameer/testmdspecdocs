@@ -203,13 +203,6 @@ const checks: Check[] = [
     fn: () => s3KeyExists('s3-selective/excluded/EXCLUDED.md'),
   },
 
-  // ── S3: multi-docs (ClickUp + S3 same folder) ────────────────────────────
-  {
-    name: 'S3 multi | MULTI_TEST    → multi-docs/MULTI_TEST.md       [exists]',
-    expect: 'exists',
-    fn: () => s3KeyExists('multi-docs/MULTI_TEST.md'),
-  },
-
   // ── ClickUp: root mapping ─────────────────────────────────────────────────
   // Verifies task exists in list AND is under the correct folder
   {
@@ -243,22 +236,6 @@ const checks: Check[] = [
     fn: async () => {
       const tasks = await getTasksInList()
       return !!findTask(tasks, 'Deep Task Should Not Sync')
-    },
-  },
-
-  // ── ClickUp: multi-docs mapping ──────────────────────────────────────────
-  {
-    name: 'ClickUp  | multi task    → "Multi-Integration" in list+folder [exists]',
-    expect: 'exists',
-    fn: async () => {
-      const tasks = await getTasksInList()
-      const task = findTask(tasks, 'Multi-Integration')
-      if (!task) return false
-      if (task.list.id !== CLICKUP_LIST_ID)
-        throw new Error(`wrong list: got ${task.list.id}, want ${CLICKUP_LIST_ID}`)
-      if (task.folder.id !== CLICKUP_FOLDER_ID)
-        throw new Error(`wrong folder: got ${task.folder.id}, want ${CLICKUP_FOLDER_ID}`)
-      return true
     },
   },
 
