@@ -11,6 +11,8 @@ version: 1
 sync_all_on_first_run: true
 
 mappings:
-  - folder: /
-    integration: clickup
-    # parent: <alias-name>
+  - integration: clickup
+    target: task
+    list_id: id:901817533430
+    space_id: id:folder:901813560821
+    agent: Task Template - 1
