@@ -1,0 +1,16 @@
+# .mdspecmap — mdspec configuration file
+# Project: Test for mdspecs
+#
+# Edit this file to configure folder-to-integration mappings.
+# Define aliases in Dashboard → Map → Aliases.
+#
+# Docs: https://mdspec.dev/docs/mdspecmap
+
+version: 1
+
+sync_all_on_first_run: true
+
+mappings:
+  - folder: /
+    integration: clickup
+    # parent: <alias-name>

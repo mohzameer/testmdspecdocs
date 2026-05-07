@@ -1,0 +1,19 @@
+name: Publish to MDSpec
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - run: npx mdspeci publish --project 7d656b4d-9e66-4fff-a807-86d4f0f96a0d
+        env:
+          MDSPEC_TOKEN: ${{ secrets.MDSPEC_TOKEN }}
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
