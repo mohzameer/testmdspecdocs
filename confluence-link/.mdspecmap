@@ -1,0 +1,6 @@
+version: 1
+
+mappings:
+  - integration: confluence
+    target: document
+    parent: link:CONFLUENCE_PARENT_PAGE_URL

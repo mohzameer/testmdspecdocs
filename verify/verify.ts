@@ -414,6 +414,24 @@ const checks: Check[] = [
     },
   },
 
+  // ── ClickUp: link: list_id (clickup-link/) ───────────────────────────────
+  {
+    name: 'ClickUp  | link: list_id    → "ClickUp Link Task"          [exists]',
+    expect: 'exists',
+    fn: async () => {
+      const tasks = await getTasksInList()
+      return !!findTask(tasks, 'ClickUp Link Task')
+    },
+  },
+  {
+    name: 'ClickUp  | link: content    → "ClickUp Link Task" body synced [exists]',
+    expect: 'exists',
+    fn: async () => {
+      const tasks = await getTasksInList()
+      return taskContains(tasks, 'ClickUp Link Task', 'clickup-link-verify-marker')
+    },
+  },
+
   // ── Notion: default database root (notion-docs/) ─────────────────────────
   {
     name: 'Notion   | first page    → "Notion Test Document"          [exists]',
@@ -473,6 +491,20 @@ const checks: Check[] = [
     expect: 'exists' as const,
     fn: () => confluencePageExistsUnderParent('Confluence Child Document', CONFLUENCE_PARENT_PAGE_ID!),
   }] : []),
+
+  // ── Confluence: link: parent (confluence-link/) — skipped if CONFLUENCE_BASE_URL unset
+  ...(process.env.CONFLUENCE_BASE_URL && process.env.CONFLUENCE_SPACE_KEY ? [
+    {
+      name: 'Confluence | link: parent → "Confluence Link Document" under parent page [exists]',
+      expect: 'exists' as const,
+      fn: () => confluencePageExistsUnderParent('Confluence Link Document', '360449'),
+    },
+    {
+      name: 'Confluence | link: content → "Confluence Link Document" body synced [exists]',
+      expect: 'exists' as const,
+      fn: () => confluencePageContains('Confluence Link Document', 'confluence-link-verify-marker'),
+    },
+  ] : []),
 
   // ── Alias resolution (notion-alias/, clickup-alias/) ─────────────────────
   {
