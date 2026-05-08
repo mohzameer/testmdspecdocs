@@ -1,5 +1,7 @@
 # testmdspecdocs
 
+> Local repo: `/Users/mfmz/testmdspecdocs`
+
 End-to-end integration test repo for [mdspec.dev](https://mdspec.dev). Every push to `main` triggers a full publish → verify cycle via GitHub Actions.
 
 ## How it works
@@ -10,7 +12,7 @@ push to main
        └─ e2e.yml     runs verify/verify.ts  → polls each integration and asserts results
 ```
 
-The `.mdspecmap` files in each folder are the **source of truth** for routing. The verify script checks that docs land exactly where the maps say they should — and that docs outside the allowed paths do not appear.
+The `.mdspecmap` files in each folder are the **source of truth** for routing. The verify script checks that docs land exactly where the maps say they should, that their body content was synced correctly, and that docs outside the allowed paths do not appear.
 
 ## Folder structure
 
@@ -22,6 +24,8 @@ testmdspecdocs/
 ├── clickup-root-only/    ClickUp: sub_folders: false (root files only)
 ├── notion-docs/          Notion: database mode (default root)
 ├── notion-subpage/       Notion: database mode with per-folder page override
+├── confluence-docs/      Confluence: space root (flat + nested hierarchy)
+├── confluence-parent/    Confluence: per-folder parent page override
 └── verify/               Verification script
 ```
 
@@ -34,10 +38,11 @@ testmdspecdocs/
 | File | Expected S3 key | Check |
 |------|----------------|-------|
 | `FLAT_A.md` | `s3-flat/FLAT_A.md` | exists |
+| `FLAT_A.md` | body contains `s3-flat-verify-marker` | content synced |
 | `nested/FLAT_B.md` | `s3-flat/FLAT_B.md` (path stripped) | exists |
 | _(nested path)_ | `s3-flat/nested/FLAT_B.md` | absent — flat mode must not preserve path |
 
-Verifies: flat mode strips subdirectory paths, all files land at the prefix root.
+Verifies: flat mode strips subdirectory paths; all files land at the prefix root; body content is faithfully written to S3.
 
 ---
 
@@ -64,7 +69,7 @@ Verifies: hierarchy mode preserves the full relative path under the prefix.
 | `included/INCLUDED.md` | `s3-selective/included/INCLUDED.md` | exists — matches glob |
 | `excluded/EXCLUDED.md` | `s3-selective/excluded/EXCLUDED.md` | absent — does not match glob |
 
-Verifies: `sub_folders` glob restricts which subdirectories are synced; root files are always included regardless of glob.
+Verifies: `sub_folders` glob restricts which subdirectories are synced; root files are always included regardless of glob; the most-specific folder mapping wins (a root integration without restrictions cannot rescue a file that a scoped mapping rejects).
 
 ---
 
@@ -75,9 +80,12 @@ Verifies: `sub_folders` glob restricts which subdirectories are synced; root fil
 | File | Expected ClickUp task | Check |
 |------|-----------------------|-------|
 | `SHALLOW.md` | "Shallow Task" | exists |
-| `deep/DEEP.md` | "Deep Task Should Not Sync" (title from frontmatter) | absent |
+| `SHALLOW.md` | task description contains `clickup-task-verify-marker` | content synced |
+| `deep/DEEP.md` | "Deep Task Should Not Sync" | absent |
 
-Verifies: `sub_folders: false` limits syncing to root-level files only (depth 1); nested files are not published.
+Task titles come from the frontmatter `title:` field, not the filename. Descriptions are synced as markdown via `include_markdown_description=true`.
+
+Verifies: `sub_folders: false` limits syncing to root-level files only (depth 1); nested files are not published; task description body is correctly written.
 
 ---
 
@@ -88,10 +96,42 @@ Verifies: `sub_folders: false` limits syncing to root-level files only (depth 1)
 | File | Expected Notion location | Check |
 |------|--------------------------|-------|
 | `NOTION_TEST.md` | "Notion Test Document" under root database | exists |
+| `NOTION_TEST.md` | page blocks contain `notion-database-verify-marker` | content synced |
 | `NOTION_SECOND.md` | "Notion Second Document" under root database | exists |
 | `nested/NOTION_NESTED.md` | "Notion Nested Document" under root database | exists |
 
-Verifies: without a `parent:` override, all docs land as rows in the connected Notion database.
+Verifies: without a `parent:` override, all docs land as rows in the connected Notion database regardless of subfolder depth; page body blocks are correctly written.
+
+---
+
+### Confluence — space root (`confluence-docs/`)
+
+`.mdspecmap`: `integration: confluence`, `target: document`
+
+| File | Expected Confluence page | Check |
+|------|--------------------------|-------|
+| `CONFLUENCE_TEST.md` | "Confluence Test Document" in configured space | exists |
+| `CONFLUENCE_TEST.md` | page body (storage) contains `confluence-test-verify-marker` | content synced |
+| `CONFLUENCE_SECOND.md` | "Confluence Second Document" in configured space | exists |
+| `nested/CONFLUENCE_NESTED.md` | "Confluence Nested Document" in configured space | exists |
+
+The nested file exercises automatic ancestor page creation: the adapter creates a `confluence-docs` parent page and a `nested` child page before publishing the spec beneath them.
+
+Verifies: basic Confluence publish; multiple docs per folder; nested path triggers intermediate page hierarchy; body content is written in Confluence storage format.
+
+---
+
+### Confluence — per-folder parent override (`confluence-parent/`)
+
+`.mdspecmap`: `integration: confluence`, `parent: id:<pageId>`
+
+| File | Expected Confluence location | Check |
+|------|------------------------------|-------|
+| `CONFLUENCE_CHILD.md` | "Confluence Child Document" as child of the configured parent page | exists |
+
+Set `CONFLUENCE_PARENT_PAGE_ID` in `verify/.env` to the ID of an existing Confluence page to enable this check. If the variable is unset the check is skipped.
+
+Verifies: when `parent: id:<pageId>` is set in `.mdspecmap`, docs route to that specific Confluence page instead of computing the full folder hierarchy from the path.
 
 ---
 
@@ -107,15 +147,50 @@ Verifies: when `parent: id:<pageId>` is set in `.mdspecmap`, docs route to that 
 
 ---
 
-### Content verification
+## Check summary
 
-One file per integration carries a unique `Content-check:` marker in its body. After verifying existence and parent routing, the verify script fetches the raw content from each integration and asserts the marker is present — confirming the file body was actually synced, not just the metadata.
+| # | Integration | Type | What it proves |
+|---|-------------|------|----------------|
+| 1 | S3 flat | exists | flat mode routes to correct key |
+| 2 | S3 flat | content | file body written to S3 |
+| 3 | S3 flat | absent | flat mode does not preserve nested path |
+| 4 | S3 hierarchy | exists (root) | hierarchy root file at correct key |
+| 5 | S3 hierarchy | exists (nested) | hierarchy preserves subfolder path |
+| 6 | S3 glob | exists (root) | root files bypass glob filter |
+| 7 | S3 glob | exists (matched) | matched glob subfolder syncs |
+| 8 | S3 glob | absent | unmatched glob subfolder excluded |
+| 9 | ClickUp | exists | task created with correct title |
+| 10 | ClickUp | content | task description body synced |
+| 11 | ClickUp | absent | nested file not published (depth filter) |
+| 12 | Notion database | exists (1) | first doc in database root |
+| 13 | Notion database | exists (2) | second doc in database root |
+| 14 | Notion database | exists (nested) | nested file lands in database root (not nested) |
+| 15 | Notion database | content | page blocks body synced |
+| 16 | Notion subpage | exists | per-folder parent override routes to correct page |
+| 17 | Confluence | exists (1) | first page published to space |
+| 18 | Confluence | exists (2) | second page published to space |
+| 19 | Confluence | exists (nested) | nested file triggers ancestor hierarchy creation |
+| 20 | Confluence | content | page body (storage format) synced correctly |
+| 21 | Confluence parent | exists | per-folder parent override routes to correct page |
 
-| Integration | File | Marker |
-|-------------|------|--------|
-| S3 | `s3-flat/FLAT_A.md` | `s3-flat-verify-marker` |
-| Notion | `notion-docs/NOTION_TEST.md` | `notion-database-verify-marker` |
-| ClickUp | `clickup-root-only/SHALLOW.md` | `clickup-task-verify-marker` |
+**Total: 20 checks** (21 when `CONFLUENCE_PARENT_PAGE_ID` is set) — 17–18 positive (polled up to 3 min), 3 negative (run once after positives complete).
+
+---
+
+## Known gaps
+
+| Area | Gap |
+|------|-----|
+| Notion subpage | Content not verified for the Backend page — only parent routing is checked |
+| S3 hierarchy | Content not verified — only key existence is checked |
+| S3 flat | Only `FLAT_A.md` content is verified; `FLAT_B.md` (nested strip) is existence-only |
+| ClickUp doc mode | Not tested — only task list mode is covered |
+| Confluence parent | Skipped unless `CONFLUENCE_PARENT_PAGE_ID` is set in verify/.env |
+| Confluence content | Only `CONFLUENCE_TEST.md` body is verified; second and nested docs are existence-only |
+| Frontmatter title | No dedicated test where filename ≠ `title:` frontmatter to isolate title resolution |
+| Update cycle | No test that edits a file and verifies the updated content replaces the old content |
+| Deletion | No test that removing a file from the repo causes it to be removed from the integration |
+| Multi-integration | No folder mapped to two integrations simultaneously |
 
 ---
 
@@ -143,6 +218,11 @@ npm run verify:debug
 | `AWS_SECRET_ACCESS_KEY` | S3 checks |
 | `CLICKUP_API_TOKEN` | ClickUp checks |
 | `NOTION_TOKEN` | Notion checks |
+| `CONFLUENCE_BASE_URL` | Confluence checks |
+| `CONFLUENCE_EMAIL` | Confluence checks |
+| `CONFLUENCE_TOKEN` | Confluence checks |
+| `CONFLUENCE_SPACE_KEY` | Confluence checks |
+| `CONFLUENCE_PARENT_PAGE_ID` | Confluence parent check (optional — skipped if unset) |
 
 ---
 

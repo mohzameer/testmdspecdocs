@@ -22,6 +22,8 @@ const S3_REGION = 'eu-central-1'
 const CLICKUP_LIST_ID = '901817533430'
 const NOTION_ROOT_DATABASE_ID = 'a05d3b75-1236-4fd9-a6d4-2e291da5ccb1'
 const NOTION_BACKEND_PAGE_ID  = 'cc69bd0f-98d7-4d6e-8701-72d92a920cf5'
+const CONFLUENCE_SPACE_KEY    = process.env.CONFLUENCE_SPACE_KEY!
+const CONFLUENCE_PARENT_PAGE_ID = process.env.CONFLUENCE_PARENT_PAGE_ID ?? null
 
 const POLL_TIMEOUT_MS  = 180_000
 const POLL_INTERVAL_MS = 6_000
@@ -263,6 +265,79 @@ async function notionPageContains(title: string, marker: string): Promise<boolea
 }
 
 // ---------------------------------------------------------------------------
+// Confluence helpers
+// ---------------------------------------------------------------------------
+
+interface ConfluencePage {
+  id: string
+  title: string
+  _links: { webui: string }
+  ancestors: Array<{ id: string; title: string }>
+  body?: { storage?: { value?: string } }
+}
+
+async function searchConfluencePages(title: string): Promise<ConfluencePage[]> {
+  const base = (process.env.CONFLUENCE_BASE_URL ?? '').replace(/\/$/, '')
+  const email = process.env.CONFLUENCE_EMAIL!
+  const token = process.env.CONFLUENCE_TOKEN!
+  const url = `${base}/wiki/rest/api/content?title=${encodeURIComponent(title)}&spaceKey=${CONFLUENCE_SPACE_KEY}&expand=ancestors,body.storage&limit=5`
+  dbg(`Confluence GET ${url}`)
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 10_000)
+  try {
+    const res = await fetch(url, {
+      headers: {
+        Authorization: 'Basic ' + Buffer.from(`${email}:${token}`).toString('base64'),
+        'Content-Type': 'application/json',
+      },
+      signal: controller.signal,
+    })
+    if (!res.ok) throw new Error(`Confluence API ${res.status}: ${await res.text()}`)
+    const data = await res.json() as { results?: ConfluencePage[] }
+    const pages = data.results ?? []
+    dbg(`Confluence → ${pages.length} results:`, pages.map(p => `"${p.title}" id=${p.id}`))
+    return pages
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function confluencePageExists(title: string): Promise<boolean> {
+  const pages = await searchConfluencePages(title)
+  const match = pages.find(p => p.title.toLowerCase() === title.toLowerCase())
+  if (!match) return false
+  const base = (process.env.CONFLUENCE_BASE_URL ?? '').replace(/\/$/, '')
+  console.log(`\n  → ${base}/wiki${match._links.webui}  [confluence ✓]`)
+  return true
+}
+
+async function confluencePageExistsUnderParent(title: string, parentPageId: string): Promise<boolean> {
+  const pages = await searchConfluencePages(title)
+  const match = pages.find(p => p.title.toLowerCase() === title.toLowerCase())
+  if (!match) return false
+
+  const directParent = match.ancestors.at(-1)
+  if (!directParent || directParent.id !== parentPageId) {
+    throw new Error(
+      `wrong parent: id=${directParent?.id ?? 'none'}, expected ${parentPageId}`
+    )
+  }
+
+  const base = (process.env.CONFLUENCE_BASE_URL ?? '').replace(/\/$/, '')
+  console.log(`\n  → ${base}/wiki${match._links.webui}  [confluence parent ✓]`)
+  return true
+}
+
+async function confluencePageContains(title: string, marker: string): Promise<boolean> {
+  const pages = await searchConfluencePages(title)
+  const match = pages.find(p => p.title.toLowerCase() === title.toLowerCase())
+  if (!match) return false
+  const body = match.body?.storage?.value ?? ''
+  dbg(`confluencePageContains("${title}", "${marker}") body length=${body.length} result=${body.includes(marker)}`)
+  return body.includes(marker)
+}
+
+// ---------------------------------------------------------------------------
 // Checks
 // ---------------------------------------------------------------------------
 
@@ -362,6 +437,30 @@ const checks: Check[] = [
     fn: () => notionPageExistsUnderPage('Backend Test Document', NOTION_BACKEND_PAGE_ID),
   },
 
+  // ── Confluence: space root (confluence-docs/) ────────────────────────────
+  {
+    name: 'Confluence | first page   → "Confluence Test Document"        [exists]',
+    expect: 'exists',
+    fn: () => confluencePageExists('Confluence Test Document'),
+  },
+  {
+    name: 'Confluence | second page  → "Confluence Second Document"      [exists]',
+    expect: 'exists',
+    fn: () => confluencePageExists('Confluence Second Document'),
+  },
+  {
+    name: 'Confluence | nested page  → "Confluence Nested Document"      [exists]',
+    expect: 'exists',
+    fn: () => confluencePageExists('Confluence Nested Document'),
+  },
+
+  // ── Confluence: per-folder parent override (confluence-parent/) ───────────
+  ...(CONFLUENCE_PARENT_PAGE_ID ? [{
+    name: 'Confluence | child page   → "Confluence Child Document" under parent [exists]',
+    expect: 'exists' as const,
+    fn: () => confluencePageExistsUnderParent('Confluence Child Document', CONFLUENCE_PARENT_PAGE_ID!),
+  }] : []),
+
   // ── Content verification ──────────────────────────────────────────────────
   {
     name: 'S3 content   | FLAT_A.md body synced correctly                [exists]',
@@ -380,6 +479,11 @@ const checks: Check[] = [
       const tasks = await getTasksInList()
       return taskContains(tasks, 'Shallow Task', 'clickup-task-verify-marker')
     },
+  },
+  {
+    name: 'Confluence content | "Confluence Test Document" body synced  [exists]',
+    expect: 'exists',
+    fn: () => confluencePageContains('Confluence Test Document', 'confluence-test-verify-marker'),
   },
 ]
 
