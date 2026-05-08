@@ -14,9 +14,10 @@ jobs:
           fetch-depth: 0
 
       - name: Substitute Confluence link URL
-        if: ${{ secrets.CONFLUENCE_BASE_URL != '' && secrets.CONFLUENCE_SPACE_KEY != '' }}
         run: |
-          sed -i "s|CONFLUENCE_PARENT_PAGE_URL|${{ secrets.CONFLUENCE_BASE_URL }}/wiki/spaces/${{ secrets.CONFLUENCE_SPACE_KEY }}/pages/360449|g" confluence-link/.mdspecmap
+          if [ -n "$CONFLUENCE_BASE_URL" ] && [ -n "$CONFLUENCE_SPACE_KEY" ]; then
+            sed -i "s|CONFLUENCE_PARENT_PAGE_URL|${CONFLUENCE_BASE_URL}/wiki/spaces/${CONFLUENCE_SPACE_KEY}/pages/360449|g" confluence-link/.mdspecmap
+          fi
         env:
           CONFLUENCE_BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
           CONFLUENCE_SPACE_KEY: ${{ secrets.CONFLUENCE_SPACE_KEY }}
