@@ -1,4 +1,4 @@
-import { S3Client, HeadObjectCommand } from '@aws-sdk/client-s3'
+import { S3Client, HeadObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3'
 import { readFileSync, existsSync } from 'fs'
 import { resolve } from 'path'
 
@@ -82,18 +82,32 @@ async function s3KeyExists(key: string): Promise<boolean> {
   }
 }
 
+async function s3ObjectContains(key: string, marker: string): Promise<boolean> {
+  dbg(`S3 GetObject → s3://${S3_BUCKET}/${key}`)
+  try {
+    const res = await s3.send(new GetObjectCommand({ Bucket: S3_BUCKET, Key: key }))
+    const body = await res.Body?.transformToString() ?? ''
+    dbg(`S3 content length=${body.length} contains="${marker}": ${body.includes(marker)}`)
+    return body.includes(marker)
+  } catch (err) {
+    dbg(`S3 GetObject failed (${(err as { name?: string }).name ?? 'unknown'})`)
+    return false
+  }
+}
+
 // ---------------------------------------------------------------------------
 // ClickUp helpers
 // ---------------------------------------------------------------------------
 
 interface ClickUpTask {
   name: string
+  description?: string
   list: { id: string }
   folder: { id: string }
 }
 
 async function getTasksInList(): Promise<ClickUpTask[]> {
-  const url = `https://api.clickup.com/api/v2/list/${CLICKUP_LIST_ID}/task?include_closed=true`
+  const url = `https://api.clickup.com/api/v2/list/${CLICKUP_LIST_ID}/task?include_closed=true&include_markdown_description=true`
   dbg(`ClickUp GET ${url}`)
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 10_000)
@@ -116,6 +130,14 @@ function findTask(tasks: ClickUpTask[], titleSubstring: string): ClickUpTask | u
   const match = tasks.find(t => t.name.toLowerCase().includes(titleSubstring.toLowerCase()))
   dbg(`findTask("${titleSubstring}") →`, match ? `found: "${match.name}"` : 'not found')
   return match
+}
+
+function taskContains(tasks: ClickUpTask[], titleSubstring: string, marker: string): boolean {
+  const task = findTask(tasks, titleSubstring)
+  if (!task) return false
+  const desc = task.description ?? ''
+  dbg(`taskContains("${titleSubstring}", "${marker}") desc length=${desc.length} result=${desc.includes(marker)}`)
+  return desc.includes(marker)
 }
 
 // ---------------------------------------------------------------------------
@@ -209,6 +231,35 @@ async function notionPageExistsUnderPage(title: string, expectedPageId: string):
 
   console.log(`\n  → ${page.url}  [page ✓]`)
   return true
+}
+
+async function notionPageContains(title: string, marker: string): Promise<boolean> {
+  const page = await findNotionPage(title)
+  if (!page) return false
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 10_000)
+  try {
+    const res = await fetch(`https://api.notion.com/v1/blocks/${page.id}/children?page_size=100`, {
+      headers: {
+        Authorization: `Bearer ${process.env.NOTION_TOKEN}`,
+        'Notion-Version': '2022-06-28',
+      },
+      signal: controller.signal,
+    })
+    if (!res.ok) throw new Error(`Notion blocks API ${res.status}`)
+    const data = await res.json() as {
+      results?: Array<{ type?: string; [key: string]: unknown }>
+    }
+    const text = (data.results ?? []).map(block => {
+      const type = block.type as string
+      const content = block[type] as { rich_text?: Array<{ plain_text?: string }> } | undefined
+      return content?.rich_text?.map(rt => rt.plain_text ?? '').join('') ?? ''
+    }).join('\n')
+    dbg(`notionPageContains("${title}", "${marker}") text length=${text.length} result=${text.includes(marker)}`)
+    return text.includes(marker)
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -309,6 +360,26 @@ const checks: Check[] = [
     name: 'Notion   | sub-page      → "Backend Test Document" under Backend [exists]',
     expect: 'exists',
     fn: () => notionPageExistsUnderPage('Backend Test Document', NOTION_BACKEND_PAGE_ID),
+  },
+
+  // ── Content verification ──────────────────────────────────────────────────
+  {
+    name: 'S3 content   | FLAT_A.md body synced correctly                [exists]',
+    expect: 'exists',
+    fn: () => s3ObjectContains('s3-flat/FLAT_A.md', 's3-flat-verify-marker'),
+  },
+  {
+    name: 'Notion content | "Notion Test Document" body synced correctly [exists]',
+    expect: 'exists',
+    fn: () => notionPageContains('Notion Test Document', 'notion-database-verify-marker'),
+  },
+  {
+    name: 'ClickUp content | "Shallow Task" description synced correctly [exists]',
+    expect: 'exists',
+    fn: async () => {
+      const tasks = await getTasksInList()
+      return taskContains(tasks, 'Shallow Task', 'clickup-task-verify-marker')
+    },
   },
 ]
 

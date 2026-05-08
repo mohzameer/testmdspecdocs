@@ -75,7 +75,7 @@ Verifies: `sub_folders` glob restricts which subdirectories are synced; root fil
 | File | Expected ClickUp task | Check |
 |------|-----------------------|-------|
 | `SHALLOW.md` | "Shallow Task" | exists |
-| `deep/DEEP.md` | "Deep Task Should Not Sync" | absent |
+| `deep/DEEP.md` | "Deep Task Should Not Sync" (title from frontmatter) | absent |
 
 Verifies: `sub_folders: false` limits syncing to root-level files only (depth 1); nested files are not published.
 
@@ -104,6 +104,18 @@ Verifies: without a `parent:` override, all docs land as rows in the connected N
 | `BACKEND_DOC.md` | "Backend Test Document" as child page under the Backend page | exists |
 
 Verifies: when `parent: id:<pageId>` is set in `.mdspecmap`, docs route to that specific Notion page even when the integration is in database mode. The `.mdspecmap` is authoritative — the dashboard integration default is overridden per folder.
+
+---
+
+### Content verification
+
+One file per integration carries a unique `Content-check:` marker in its body. After verifying existence and parent routing, the verify script fetches the raw content from each integration and asserts the marker is present — confirming the file body was actually synced, not just the metadata.
+
+| Integration | File | Marker |
+|-------------|------|--------|
+| S3 | `s3-flat/FLAT_A.md` | `s3-flat-verify-marker` |
+| Notion | `notion-docs/NOTION_TEST.md` | `notion-database-verify-marker` |
+| ClickUp | `clickup-root-only/SHALLOW.md` | `clickup-task-verify-marker` |
 
 ---
 
