@@ -438,6 +438,18 @@ const checks: Check[] = [
     fn: () => notionPageExistsUnderPage('Backend Test Document', NOTION_BACKEND_PAGE_ID),
   },
 
+  // ── Notion: link: parent (notion-link/ → Backend page via URL extraction) ─
+  {
+    name: 'Notion   | link: parent  → "Notion Link Test Document" under Backend [exists]',
+    expect: 'exists',
+    fn: () => notionPageExistsUnderPage('Notion Link Test Document', NOTION_BACKEND_PAGE_ID),
+  },
+  {
+    name: 'Notion   | link: content → "Notion Link Test Document" body synced   [exists]',
+    expect: 'exists',
+    fn: () => notionPageContains('Notion Link Test Document', 'notion-link-verify-marker'),
+  },
+
   // ── Confluence: space root (confluence-docs/) ────────────────────────────
   {
     name: 'Confluence | first page   → "Confluence Test Document"        [exists]',
