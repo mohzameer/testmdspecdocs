@@ -462,6 +462,34 @@ const checks: Check[] = [
     fn: () => confluencePageExistsUnderParent('Confluence Child Document', CONFLUENCE_PARENT_PAGE_ID!),
   }] : []),
 
+  // ── Alias resolution (notion-alias/, clickup-alias/) ─────────────────────
+  {
+    name: 'Alias    | Notion alias:backend-page → "Notion Alias Test Document" under Backend [exists]',
+    expect: 'exists',
+    fn: () => notionPageExistsUnderPage('Notion Alias Test Document', NOTION_BACKEND_PAGE_ID),
+  },
+  {
+    name: 'Alias    | Notion alias content synced correctly                   [exists]',
+    expect: 'exists',
+    fn: () => notionPageContains('Notion Alias Test Document', 'notion-alias-verify-marker'),
+  },
+  {
+    name: 'Alias    | ClickUp alias:clickup-tasks → "ClickUp Alias Task"      [exists]',
+    expect: 'exists',
+    fn: async () => {
+      const tasks = await getTasksInList()
+      return !!findTask(tasks, 'ClickUp Alias Task')
+    },
+  },
+  {
+    name: 'Alias    | ClickUp alias content synced correctly                  [exists]',
+    expect: 'exists',
+    fn: async () => {
+      const tasks = await getTasksInList()
+      return taskContains(tasks, 'ClickUp Alias Task', 'clickup-alias-verify-marker')
+    },
+  },
+
   // ── Content verification ──────────────────────────────────────────────────
   {
     name: 'S3 content   | FLAT_A.md body synced correctly                [exists]',

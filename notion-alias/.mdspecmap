@@ -1,0 +1,6 @@
+version: 1
+
+mappings:
+  - integration: notion
+    target: document
+    parent: alias:backend-page

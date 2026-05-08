@@ -147,6 +147,35 @@ Verifies: when `parent: id:<pageId>` is set in `.mdspecmap`, docs route to that 
 
 ---
 
+### Aliases — `alias:` resolution (`notion-alias/`, `clickup-alias/`)
+
+Aliases are named shortcuts defined in the dashboard (Integrations → Aliases) that map a human-readable name to a native integration target ID. In `.mdspecmap`, use `parent: alias:<name>` or `list_id: alias:<name>` instead of hardcoding a raw ID.
+
+Pre-created aliases used by these tests:
+
+| Alias | Integration | Resolves to |
+|-------|-------------|-------------|
+| `backend-page` | Notion | Backend page `cc69bd0f-98d7-4d6e-8701-72d92a920cf5` |
+| `clickup-tasks` | ClickUp | List `901817533430` |
+
+**`notion-alias/.mdspecmap`**: `parent: alias:backend-page`
+
+| File | Expected Notion location | Check |
+|------|--------------------------|-------|
+| `NOTION_ALIAS_DOC.md` | "Notion Alias Test Document" under the Backend page | exists |
+| `NOTION_ALIAS_DOC.md` | page blocks contain `notion-alias-verify-marker` | content synced |
+
+**`clickup-alias/.mdspecmap`**: `list_id: alias:clickup-tasks`, `sub_folders: false`
+
+| File | Expected ClickUp task | Check |
+|------|-----------------------|-------|
+| `ALIAS_TASK.md` | "ClickUp Alias Task" in the tasks list | exists |
+| `ALIAS_TASK.md` | task description contains `clickup-alias-verify-marker` | content synced |
+
+Verifies: the alias → native ID resolution pipeline works end-to-end; docs reach the correct destination when the `.mdspecmap` uses an alias name rather than a hardcoded ID.
+
+---
+
 ## Check summary
 
 | # | Integration | Type | What it proves |
@@ -167,13 +196,17 @@ Verifies: when `parent: id:<pageId>` is set in `.mdspecmap`, docs route to that 
 | 14 | Notion database | exists (nested) | nested file lands in database root (not nested) |
 | 15 | Notion database | content | page blocks body synced |
 | 16 | Notion subpage | exists | per-folder parent override routes to correct page |
+| 17 | Notion alias | exists | `alias:backend-page` resolves to correct Notion page |
+| 18 | Notion alias | content | alias-routed page body synced |
+| 19 | ClickUp alias | exists | `alias:clickup-tasks` resolves to correct list |
+| 20 | ClickUp alias | content | alias-routed task description synced |
 | 17 | Confluence | exists (1) | first page published to space |
 | 18 | Confluence | exists (2) | second page published to space |
 | 19 | Confluence | exists (nested) | nested file triggers ancestor hierarchy creation |
 | 20 | Confluence | content | page body (storage format) synced correctly |
 | 21 | Confluence parent | exists | per-folder parent override routes to correct page |
 
-**Total: 20 checks** (21 when `CONFLUENCE_PARENT_PAGE_ID` is set) — 17–18 positive (polled up to 3 min), 3 negative (run once after positives complete).
+**Total: 24 checks** (25 when `CONFLUENCE_PARENT_PAGE_ID` is set) — 21–22 positive (polled up to 3 min), 3 negative (run once after positives complete).
 
 ---
 
@@ -181,6 +214,7 @@ Verifies: when `parent: id:<pageId>` is set in `.mdspecmap`, docs route to that 
 
 | Area | Gap |
 |------|-----|
+| Notion alias content | Only routing is verified for the alias Notion doc — no deeper block-by-block diff |
 | Notion subpage | Content not verified for the Backend page — only parent routing is checked |
 | S3 hierarchy | Content not verified — only key existence is checked |
 | S3 flat | Only `FLAT_A.md` content is verified; `FLAT_B.md` (nested strip) is existence-only |

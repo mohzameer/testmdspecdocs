@@ -1,0 +1,10 @@
+version: 1
+
+sub_folders: false
+
+mappings:
+  - integration: clickup
+    target: task
+    list_id: alias:clickup-tasks
+    space_id: id:folder:901813560821
+    agent: Task Template - 1
