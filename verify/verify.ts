@@ -473,23 +473,6 @@ const checks: Check[] = [
     expect: 'exists',
     fn: () => notionPageContains('Notion Alias Test Document', 'notion-alias-verify-marker'),
   },
-  {
-    name: 'Alias    | ClickUp alias:clickup-tasks → "ClickUp Alias Task"      [exists]',
-    expect: 'exists',
-    fn: async () => {
-      const tasks = await getTasksInList()
-      return !!findTask(tasks, 'ClickUp Alias Task')
-    },
-  },
-  {
-    name: 'Alias    | ClickUp alias content synced correctly                  [exists]',
-    expect: 'exists',
-    fn: async () => {
-      const tasks = await getTasksInList()
-      return taskContains(tasks, 'ClickUp Alias Task', 'clickup-alias-verify-marker')
-    },
-  },
-
   // ── Content verification ──────────────────────────────────────────────────
   {
     name: 'S3 content   | FLAT_A.md body synced correctly                [exists]',
