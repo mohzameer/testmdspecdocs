@@ -317,6 +317,7 @@ async function confluencePageExistsUnderParent(title: string, parentPageId: stri
   if (!match) return false
 
   const directParent = match.ancestors.at(-1)
+  console.log(`  [confluence-parent] page id=${match.id} ancestors=[${match.ancestors.map(a => `${a.id}(${a.title})`).join(' → ')}] expected_parent=${parentPageId}`)
   if (!directParent || directParent.id !== parentPageId) {
     throw new Error(
       `wrong parent: id=${directParent?.id ?? 'none'}, expected ${parentPageId}`
