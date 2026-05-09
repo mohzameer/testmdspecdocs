@@ -16,7 +16,7 @@ jobs:
       - name: Substitute Confluence link URL
         run: |
           if [ -n "$CONFLUENCE_BASE_URL" ] && [ -n "$CONFLUENCE_SPACE_KEY" ]; then
-            sed -i "s|CONFLUENCE_PARENT_PAGE_URL|${CONFLUENCE_BASE_URL}/wiki/spaces/${CONFLUENCE_SPACE_KEY}/pages/360449|g" confluence-link/.mdspecmap
+            sed -i "s|id:360449|link:${CONFLUENCE_BASE_URL}/wiki/spaces/${CONFLUENCE_SPACE_KEY}/pages/360449|g" confluence-link/.mdspecmap
           fi
         env:
           CONFLUENCE_BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
