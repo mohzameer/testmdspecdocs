@@ -22,7 +22,7 @@ jobs:
           CONFLUENCE_BASE_URL: ${{ secrets.CONFLUENCE_BASE_URL }}
           CONFLUENCE_SPACE_KEY: ${{ secrets.CONFLUENCE_SPACE_KEY }}
 
-      - run: npx mdspeci publish --project 7d656b4d-9e66-4fff-a807-86d4f0f96a0d
+      - run: npx mdspeci@0.4.39 publish --project 7d656b4d-9e66-4fff-a807-86d4f0f96a0d
         env:
           MDSPEC_TOKEN: ${{ secrets.MDSPEC_TOKEN }}
           GITHUB_EVENT_BEFORE: ${{ github.event.before }}
