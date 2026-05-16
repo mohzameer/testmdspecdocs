@@ -2,7 +2,7 @@
 title: Notion Link Test Document
 ---
 
-# Notion Link Test Document
+# Notion Link Test Documents
 
 Tests that `parent: link:<url>` resolves the Notion page ID from the URL
 and routes the doc to the correct parent page — same destination as `notion-subpage/`

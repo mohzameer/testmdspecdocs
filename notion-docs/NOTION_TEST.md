@@ -2,7 +2,7 @@
 title: Notion Test Document
 ---
 
-# Notion Test Documents
+# Notion Test Document
 
 This document tests the Notion integration sync pipeline.
 
