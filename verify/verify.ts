@@ -58,13 +58,25 @@ async function pollUntil(name: string, fn: () => Promise<boolean>): Promise<void
   }
   const deadline = Date.now() + POLL_TIMEOUT_MS
   let attempt = 0
+  let lastErr: Error | null = null
   while (Date.now() < deadline) {
     attempt++
     dbg(`poll #${attempt} — ${name}`)
-    if (await fn()) return
+    try {
+      if (await fn()) return
+      lastErr = null
+    } catch (err) {
+      const msg = (err as Error).message ?? String(err)
+      // "wrong parent" is a hard failure — don't retry
+      if (msg.startsWith('wrong parent')) throw err
+      // network/abort errors — log and retry
+      dbg(`poll error (will retry): ${msg}`)
+      lastErr = err as Error
+    }
     if (!DEBUG) process.stdout.write('.')
     await new Promise(r => setTimeout(r, POLL_INTERVAL_MS))
   }
+  if (lastErr) throw lastErr
   throw new Error(`timed out after ${POLL_TIMEOUT_MS / 1000}s (${attempt} attempts)`)
 }
 
