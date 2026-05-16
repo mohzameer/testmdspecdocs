@@ -20,7 +20,7 @@ if (existsSync(envPath)) {
 const S3_BUCKET = 'xadlabs-test-1-637423622157-eu-central-1-an'
 const S3_REGION = 'eu-central-1'
 const CLICKUP_LIST_ID = '901817533430'
-const NOTION_ROOT_DATABASE_ID = 'a05d3b75-1236-4fd9-a6d4-2e291da5ccb1'
+// NOTION_ROOT_DATABASE_ID removed — notion-docs now uses page mode
 const NOTION_BACKEND_PAGE_ID  = 'cc69bd0f-98d7-4d6e-8701-72d92a920cf5'
 const CONFLUENCE_SPACE_KEY    = process.env.CONFLUENCE_SPACE_KEY!
 const CONFLUENCE_PARENT_PAGE_ID = process.env.CONFLUENCE_PARENT_PAGE_ID ?? null
@@ -207,17 +207,10 @@ async function findNotionPage(title: string): Promise<NotionPage | null> {
   return match
 }
 
-async function notionPageExistsUnderDatabase(title: string): Promise<boolean> {
+async function notionPageExists(title: string): Promise<boolean> {
   const page = await findNotionPage(title)
   if (!page) return false
-
-  if (page.parentType !== 'database_id' || page.parentId !== NOTION_ROOT_DATABASE_ID) {
-    throw new Error(
-      `wrong parent: type=${page.parentType} id=${page.parentId}, expected database_id=${NOTION_ROOT_DATABASE_ID}`
-    )
-  }
-
-  console.log(`\n  → ${page.url}  [database ✓]`)
+  console.log(`\n  → ${page.url}  [page ✓]`)
   return true
 }
 
@@ -432,21 +425,21 @@ const checks: Check[] = [
     },
   },
 
-  // ── Notion: default database root (notion-docs/) ─────────────────────────
+  // ── Notion: page mode root (notion-docs/) ───────────────────────────────
   {
     name: 'Notion   | first page    → "Notion Test Document"          [exists]',
     expect: 'exists',
-    fn: () => notionPageExistsUnderDatabase('Notion Test Document'),
+    fn: () => notionPageExists('Notion Test Document'),
   },
   {
     name: 'Notion   | second page   → "Notion Second Document"        [exists]',
     expect: 'exists',
-    fn: () => notionPageExistsUnderDatabase('Notion Second Document'),
+    fn: () => notionPageExists('Notion Second Document'),
   },
   {
     name: 'Notion   | nested page   → "Notion Nested Document"        [exists]',
     expect: 'exists',
-    fn: () => notionPageExistsUnderDatabase('Notion Nested Document'),
+    fn: () => notionPageExists('Notion Nested Document'),
   },
 
   // ── Notion: sub-page parent (notion-subpage/ → Backend page) ─────────────

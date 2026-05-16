@@ -2,7 +2,7 @@
 title: Backend Test Document
 ---
 
-# Backend Test Documents
+# Backend Test Document
 
 Tests that docs in `notion-subpage/` land under the "Backend" Notion page
 instead of the default database root.
