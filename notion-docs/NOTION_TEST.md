@@ -20,5 +20,3 @@ Some structured content to validate Notion page rendering.
 - Item three
 
 Content-check: notion-database-verify-marker
-
-Sat May 16 20:49:57 +0530 2026
