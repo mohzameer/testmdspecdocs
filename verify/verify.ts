@@ -207,12 +207,6 @@ async function findNotionPage(title: string): Promise<NotionPage | null> {
   return match
 }
 
-async function notionPageExists(title: string): Promise<boolean> {
-  const page = await findNotionPage(title)
-  if (!page) return false
-  console.log(`\n  → ${page.url}  [page ✓]`)
-  return true
-}
 
 async function notionPageExistsUnderPage(title: string, expectedPageId: string): Promise<boolean> {
   const page = await findNotionPage(title)
@@ -425,21 +419,21 @@ const checks: Check[] = [
     },
   },
 
-  // ── Notion: page mode root (notion-docs/) ───────────────────────────────
+  // ── Notion: page mode under Backend page (notion-docs/) ─────────────────
   {
     name: 'Notion   | first page    → "Notion Test Document"          [exists]',
     expect: 'exists',
-    fn: () => notionPageExists('Notion Test Document'),
+    fn: () => notionPageExistsUnderPage('Notion Test Document', NOTION_BACKEND_PAGE_ID),
   },
   {
     name: 'Notion   | second page   → "Notion Second Document"        [exists]',
     expect: 'exists',
-    fn: () => notionPageExists('Notion Second Document'),
+    fn: () => notionPageExistsUnderPage('Notion Second Document', NOTION_BACKEND_PAGE_ID),
   },
   {
     name: 'Notion   | nested page   → "Notion Nested Document"        [exists]',
     expect: 'exists',
-    fn: () => notionPageExists('Notion Nested Document'),
+    fn: () => notionPageExistsUnderPage('Notion Nested Document', NOTION_BACKEND_PAGE_ID),
   },
 
   // ── Notion: sub-page parent (notion-subpage/ → Backend page) ─────────────
