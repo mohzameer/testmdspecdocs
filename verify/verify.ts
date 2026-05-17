@@ -31,6 +31,9 @@ const POLL_INTERVAL_MS = 6_000
 const DEBUG = !!process.env.DEBUG
 const NO_POLL = !!process.env.NO_POLL
 
+// Resolved at startup from Supabase (falls back to CLICKUP_API_TOKEN env var)
+let CLICKUP_TOKEN = ''
+
 function dbg(...args: unknown[]) {
   if (DEBUG) console.log('  [dbg]', ...args)
 }
@@ -128,7 +131,7 @@ async function getTasksInList(): Promise<ClickUpTask[]> {
   const timer = setTimeout(() => controller.abort(), 10_000)
   try {
     const res = await fetch(url, {
-      headers: { Authorization: process.env.CLICKUP_API_TOKEN! },
+      headers: { Authorization: CLICKUP_TOKEN },
       signal: controller.signal,
     })
     if (!res.ok) throw new Error(`ClickUp API ${res.status}: ${await res.text()}`)
@@ -163,7 +166,7 @@ async function findClickUpDoc(titleSubstring: string): Promise<{ id: string; nam
   const timer = setTimeout(() => controller.abort(), 10_000)
   try {
     const res = await fetch(url, {
-      headers: { Authorization: process.env.CLICKUP_API_TOKEN! },
+      headers: { Authorization: CLICKUP_TOKEN },
       signal: controller.signal,
     })
     if (!res.ok) throw new Error(`ClickUp Docs API ${res.status}: ${await res.text()}`)
@@ -577,7 +580,25 @@ const checks: Check[] = [
 // Runner
 // ---------------------------------------------------------------------------
 
+async function resolveClickUpToken(): Promise<string> {
+  if (process.env.CLICKUP_API_TOKEN) return process.env.CLICKUP_API_TOKEN
+  const url = process.env.SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !key) throw new Error('Set CLICKUP_API_TOKEN or SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY')
+  const res = await fetch(
+    `${url}/rest/v1/integrations?type=eq.clickup&status=eq.connected&select=config&order=updated_at.desc&limit=1`,
+    { headers: { apikey: key, Authorization: `Bearer ${key}` } }
+  )
+  if (!res.ok) throw new Error(`Supabase integrations ${res.status}: ${await res.text()}`)
+  const rows = await res.json() as Array<{ config: { api_token?: string } }>
+  const token = rows[0]?.config?.api_token
+  if (!token) throw new Error('No ClickUp api_token found in integration config')
+  dbg('ClickUp token resolved from Supabase')
+  return token
+}
+
 async function run() {
+  CLICKUP_TOKEN = await resolveClickUpToken()
   console.log(`\nmdspec verify — ${checks.length} checks${DEBUG ? ' [DEBUG]' : ''}\n`)
 
   const results: { name: string; ok: boolean; err?: string }[] = []
