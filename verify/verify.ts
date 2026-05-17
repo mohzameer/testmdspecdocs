@@ -20,6 +20,7 @@ if (existsSync(envPath)) {
 const S3_BUCKET = 'xadlabs-test-1-637423622157-eu-central-1-an'
 const S3_REGION = 'eu-central-1'
 const CLICKUP_LIST_ID = '901803133613'
+const CLICKUP_WORKSPACE_ID = '9018494270'
 // NOTION_ROOT_DATABASE_ID removed — notion-docs now uses page mode
 const NOTION_BACKEND_PAGE_ID  = 'cc69bd0f-98d7-4d6e-8701-72d92a920cf5'
 const CONFLUENCE_SPACE_KEY    = process.env.CONFLUENCE_SPACE_KEY!
@@ -152,6 +153,28 @@ function taskContains(tasks: ClickUpTask[], titleSubstring: string, marker: stri
   const desc = task.description ?? ''
   dbg(`taskContains("${titleSubstring}", "${marker}") desc length=${desc.length} result=${desc.includes(marker)}`)
   return desc.includes(marker)
+}
+
+async function findClickUpDoc(titleSubstring: string): Promise<{ id: string; name: string } | null> {
+  const url = `https://api.clickup.com/api/v3/workspaces/${CLICKUP_WORKSPACE_ID}/docs?search=${encodeURIComponent(titleSubstring)}`
+  dbg(`ClickUp Docs GET ${url}`)
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 10_000)
+  try {
+    const res = await fetch(url, {
+      headers: { Authorization: process.env.CLICKUP_API_TOKEN! },
+      signal: controller.signal,
+    })
+    if (!res.ok) throw new Error(`ClickUp Docs API ${res.status}: ${await res.text()}`)
+    const data = await res.json() as { data?: Array<{ id: string; name: string }> }
+    const docs = data.data ?? []
+    const match = docs.find(d => d.name.toLowerCase().includes(titleSubstring.toLowerCase()))
+    dbg(`findClickUpDoc("${titleSubstring}") →`, match ? `found id=${match.id}` : 'not found')
+    if (match) console.log(`\n  → https://app.clickup.com/${CLICKUP_WORKSPACE_ID}/docs/${match.id}  [doc ✓]`)
+    return match ?? null
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -429,6 +452,13 @@ const checks: Check[] = [
       const tasks = await getTasksInList()
       return taskContains(tasks, 'ClickUp Link Task', 'clickup-link-verify-marker')
     },
+  },
+
+  // ── ClickUp: doc mode at workspace wiki root (clickup-doc-wiki/) ────────
+  {
+    name: 'ClickUp  | doc wiki root   → "ClickUp Wiki Doc"              [exists]',
+    expect: 'exists',
+    fn: async () => !!await findClickUpDoc('ClickUp Wiki Doc'),
   },
 
   // ── Notion: page mode under Backend page (notion-docs/) ─────────────────

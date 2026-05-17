@@ -1,0 +1,7 @@
+version: 1
+
+sub_folders: false
+
+mappings:
+  - integration: clickup
+    target: doc
