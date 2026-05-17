@@ -160,7 +160,8 @@ function taskContains(tasks: ClickUpTask[], titleSubstring: string, marker: stri
 }
 
 async function findClickUpDoc(titleSubstring: string): Promise<{ id: string; name: string } | null> {
-  const url = `https://api.clickup.com/api/v3/workspaces/${CLICKUP_WORKSPACE_ID}/docs?search=${encodeURIComponent(titleSubstring)}`
+  // v3 docs endpoint doesn't support ?search= — list all and filter client-side
+  const url = `https://api.clickup.com/api/v3/workspaces/${CLICKUP_WORKSPACE_ID}/docs`
   dbg(`ClickUp Docs GET ${url}`)
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 10_000)
@@ -172,6 +173,7 @@ async function findClickUpDoc(titleSubstring: string): Promise<{ id: string; nam
     if (!res.ok) throw new Error(`ClickUp Docs API ${res.status}: ${await res.text()}`)
     const data = await res.json() as { data?: Array<{ id: string; name: string }> }
     const docs = data.data ?? []
+    dbg(`ClickUp Docs → ${docs.length} doc(s):`, docs.map(d => `"${d.name}"`))
     const match = docs.find(d => d.name.toLowerCase().includes(titleSubstring.toLowerCase()))
     dbg(`findClickUpDoc("${titleSubstring}") →`, match ? `found id=${match.id}` : 'not found')
     if (match) console.log(`\n  → https://app.clickup.com/${CLICKUP_WORKSPACE_ID}/docs/${match.id}  [doc ✓]`)
