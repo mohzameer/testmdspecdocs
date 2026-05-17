@@ -19,7 +19,7 @@ if (existsSync(envPath)) {
 
 const S3_BUCKET = 'xadlabs-test-1-637423622157-eu-central-1-an'
 const S3_REGION = 'eu-central-1'
-const CLICKUP_LIST_ID = '901817533430'
+const CLICKUP_LIST_ID = '901803133613'
 // NOTION_ROOT_DATABASE_ID removed — notion-docs now uses page mode
 const NOTION_BACKEND_PAGE_ID  = 'cc69bd0f-98d7-4d6e-8701-72d92a920cf5'
 const CONFLUENCE_SPACE_KEY    = process.env.CONFLUENCE_SPACE_KEY!
