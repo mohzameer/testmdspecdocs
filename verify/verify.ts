@@ -159,25 +159,35 @@ function taskContains(tasks: ClickUpTask[], titleSubstring: string, marker: stri
   return desc.includes(marker)
 }
 
-async function findClickUpDoc(titleSubstring: string): Promise<{ id: string; name: string } | null> {
-  // v3 docs endpoint doesn't support ?search= — list all and filter client-side
-  const url = `https://api.clickup.com/api/v3/workspaces/${CLICKUP_WORKSPACE_ID}/docs`
-  dbg(`ClickUp Docs GET ${url}`)
+async function findClickUpDoc(specId: string): Promise<{ id: string } | null> {
+  // Fetch the stored doc ID from Supabase, then verify it via single-doc endpoint.
+  // Listing all workspace docs is unreliable (scope/pagination issues with v3 API).
+  const supabaseUrl = process.env.SUPABASE_URL
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!supabaseUrl || !supabaseKey) throw new Error('SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY required')
+
+  const dbRes = await fetch(
+    `${supabaseUrl}/rest/v1/spec_publish_targets?spec_id=eq.${specId}&target_type=eq.clickup&select=external_page_id,status&limit=1`,
+    { headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` } }
+  )
+  if (!dbRes.ok) throw new Error(`Supabase spec_publish_targets ${dbRes.status}`)
+  const rows = await dbRes.json() as Array<{ external_page_id: string | null; status: string }>
+  const docId = rows[0]?.external_page_id
+  dbg(`findClickUpDoc spec=${specId} → stored docId=${docId ?? 'none'} status=${rows[0]?.status}`)
+  if (!docId) return null
+
+  const url = `https://api.clickup.com/api/v3/workspaces/${CLICKUP_WORKSPACE_ID}/docs/${docId}`
+  dbg(`ClickUp Doc GET ${url}`)
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 10_000)
   try {
-    const res = await fetch(url, {
-      headers: { Authorization: CLICKUP_TOKEN },
-      signal: controller.signal,
-    })
-    if (!res.ok) throw new Error(`ClickUp Docs API ${res.status}: ${await res.text()}`)
-    const data = await res.json() as { data?: Array<{ id: string; name: string }> }
-    const docs = data.data ?? []
-    dbg(`ClickUp Docs → ${docs.length} doc(s):`, docs.map(d => `"${d.name}"`))
-    const match = docs.find(d => d.name.toLowerCase().includes(titleSubstring.toLowerCase()))
-    dbg(`findClickUpDoc("${titleSubstring}") →`, match ? `found id=${match.id}` : 'not found')
-    if (match) console.log(`\n  → https://app.clickup.com/${CLICKUP_WORKSPACE_ID}/docs/${match.id}  [doc ✓]`)
-    return match ?? null
+    const res = await fetch(url, { headers: { Authorization: CLICKUP_TOKEN }, signal: controller.signal })
+    if (!res.ok) {
+      dbg(`ClickUp Doc ${docId} not found: ${res.status}`)
+      return null
+    }
+    console.log(`\n  → https://app.clickup.com/${CLICKUP_WORKSPACE_ID}/docs/${docId}  [doc ✓]`)
+    return { id: docId }
   } finally {
     clearTimeout(timer)
   }
@@ -464,7 +474,8 @@ const checks: Check[] = [
   {
     name: 'ClickUp  | doc wiki root   → "ClickUp Wiki Doc"              [exists]',
     expect: 'exists',
-    fn: async () => !!await findClickUpDoc('ClickUp Wiki Doc'),
+    // spec_id for clickup-doc-wiki/WIKI_DOC.md — stable unless spec is deleted
+    fn: async () => !!await findClickUpDoc('828a8b98-2240-419e-80ed-f29bdba46428'),
   },
 
   // ── Notion: page mode under Backend page (notion-docs/) ─────────────────
