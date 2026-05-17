@@ -22,10 +22,15 @@ testmdspecdocs/
 ├── s3-docs/              S3: hierarchy mode (preserves folder structure)
 ├── s3-selective/         S3: sub_folders glob filter
 ├── clickup-root-only/    ClickUp: sub_folders: false (root files only)
-├── notion-docs/          Notion: database mode (default root)
-├── notion-subpage/       Notion: database mode with per-folder page override
+├── clickup-link/         ClickUp: list_id resolved from a clickup.com URL
+├── clickup-alias/        ClickUp: list_id via alias (alongside notion-alias/)
+├── notion-docs/          Notion: page mode under configured parent page
+├── notion-subpage/       Notion: per-folder parent page override
+├── notion-alias/         Notion: parent resolved via alias name
+├── notion-link/          Notion: parent resolved from a notion.so URL
 ├── confluence-docs/      Confluence: space root (flat + nested hierarchy)
 ├── confluence-parent/    Confluence: per-folder parent page override
+├── confluence-link/      Confluence: parent resolved from an Atlassian URL
 └── verify/               Verification script
 ```
 
@@ -89,6 +94,21 @@ Verifies: `sub_folders: false` limits syncing to root-level files only (depth 1)
 
 ---
 
+### ClickUp — `list_id: link:` URL resolution (`clickup-link/`)
+
+`.mdspecmap`: `list_id: link:https://app.clickup.com/90181844797/li/901817533430`, `sub_folders: false`, `target: task`
+
+| File | Expected ClickUp task | Check |
+|------|-----------------------|-------|
+| `CLICKUP_LINK_TASK.md` | "ClickUp Link Task" in list `901817533430` | exists |
+| `CLICKUP_LINK_TASK.md` | task description contains `clickup-link-verify-marker` | content synced |
+
+Task routes to the same list as `clickup-root-only/` (which uses `list_id: id:901817533430` directly), proving that the `link:` URL resolver extracts the correct list ID from a ClickUp web URL.
+
+Verifies: `list_id: link:<url>` resolves the list ID from a full ClickUp app URL; the resolved ID produces the same routing as an explicit `id:` reference; task description body is correctly written.
+
+---
+
 ### Notion — database mode (`notion-docs/`)
 
 `.mdspecmap`: `integration: notion`, `target: document` (no `parent:`)
@@ -147,6 +167,38 @@ Verifies: when `parent: id:<pageId>` is set in `.mdspecmap`, docs route to that 
 
 ---
 
+### Notion — `parent: link:` URL resolution (`notion-link/`)
+
+`.mdspecmap`: `parent: link:https://www.notion.so/cc69bd0f-98d7-4d6e-8701-72d92a920cf5`
+
+| File | Expected Notion location | Check |
+|------|--------------------------|-------|
+| `NOTION_LINK_DOC.md` | "Notion Link Test Document" as child page under the Backend page | exists |
+| `NOTION_LINK_DOC.md` | page blocks contain `notion-link-verify-marker` | content synced |
+
+Routes to the same page as `notion-subpage/` (which uses `parent: id:cc69bd0f-98d7-4d6e-8701-72d92a920cf5` directly), proving that the `link:` URL resolver extracts the correct page ID from a Notion web URL.
+
+Verifies: `parent: link:<url>` resolves the page ID from a full notion.so URL; the resolved ID produces the same routing as an explicit `id:` reference; page body blocks are correctly written.
+
+---
+
+### Confluence — `parent: link:` URL resolution (`confluence-link/`)
+
+`.mdspecmap`: `parent: id:360449` (resolved from a full Atlassian URL via `link:` syntax)
+
+Skipped unless `CONFLUENCE_BASE_URL` and `CONFLUENCE_SPACE_KEY` are set.
+
+| File | Expected Confluence location | Check |
+|------|------------------------------|-------|
+| `CONFLUENCE_LINK_DOC.md` | "Confluence Link Document" as child of page `360449` | exists |
+| `CONFLUENCE_LINK_DOC.md` | page body contains `confluence-link-verify-marker` | content synced |
+
+Routes to the same page as `confluence-parent/` (which uses `parent: id:360449` directly), proving that the `link:` URL resolver extracts the correct page ID from an Atlassian URL.
+
+Verifies: `parent: link:<url>` resolves the Confluence page ID from a full Atlassian URL; page body (storage format) is correctly written under the resolved parent.
+
+---
+
 ### Aliases — `alias:` resolution (`notion-alias/`, `clickup-alias/`)
 
 Aliases are named shortcuts defined in the dashboard (Integrations → Aliases) that map a human-readable name to a native integration target ID. In `.mdspecmap`, use `parent: alias:<name>` or `list_id: alias:<name>` instead of hardcoding a raw ID.
@@ -189,24 +241,29 @@ Verifies: the alias → native ID resolution pipeline works end-to-end; docs rea
 | 6 | S3 glob | exists (root) | root files bypass glob filter |
 | 7 | S3 glob | exists (matched) | matched glob subfolder syncs |
 | 8 | S3 glob | absent | unmatched glob subfolder excluded |
-| 9 | ClickUp | exists | task created with correct title |
-| 10 | ClickUp | content | task description body synced |
-| 11 | ClickUp | absent | nested file not published (depth filter) |
-| 12 | Notion database | exists (1) | first doc in database root |
-| 13 | Notion database | exists (2) | second doc in database root |
-| 14 | Notion database | exists (nested) | nested file lands in database root (not nested) |
-| 15 | Notion database | content | page blocks body synced |
-| 16 | Notion subpage | exists | per-folder parent override routes to correct page |
-| 17 | Notion alias | exists | `alias:backend-page` resolves to correct Notion page |
-| 18 | Notion alias | content | alias-routed page body synced |
-| 19 | ClickUp alias | exists | ClickUp task created alongside alias-using Notion folder |
-| 17 | Confluence | exists (1) | first page published to space |
-| 18 | Confluence | exists (2) | second page published to space |
-| 19 | Confluence | exists (nested) | nested file triggers ancestor hierarchy creation |
-| 20 | Confluence | content | page body (storage format) synced correctly |
-| 21 | Confluence parent | exists | per-folder parent override routes to correct page |
+| 9 | ClickUp root-only | exists | task created with correct title |
+| 10 | ClickUp root-only | content | task description body synced |
+| 11 | ClickUp root-only | absent | nested file not published (depth filter) |
+| 12 | ClickUp link | exists | `list_id: link:<url>` resolves to correct list |
+| 13 | ClickUp link | content | link-routed task description body synced |
+| 14 | Notion page | exists (1) | first doc published under configured page |
+| 15 | Notion page | exists (2) | second doc published under configured page |
+| 16 | Notion page | exists (nested) | nested file published under configured page |
+| 17 | Notion page | content | page blocks body synced |
+| 18 | Notion subpage | exists | per-folder parent override routes to correct page |
+| 19 | Notion link | exists | `parent: link:<url>` resolves to correct Notion page |
+| 20 | Notion link | content | link-routed page body synced |
+| 21 | Notion alias | exists | `alias:backend-page` resolves to correct Notion page |
+| 22 | Notion alias | content | alias-routed page body synced |
+| 23 | ClickUp alias | exists | ClickUp task created alongside alias-using Notion folder |
+| 24 | Confluence | exists (1) | first page published to space |
+| 25 | Confluence | exists (2) | second page published to space |
+| 26 | Confluence | exists (nested) | nested file triggers ancestor hierarchy creation |
+| 27 | Confluence parent | exists | per-folder parent override routes to correct page |
+| 28 | Confluence link | exists | `parent: link:<url>` resolves to correct Confluence page |
+| 29 | Confluence link | content | link-routed page body (storage format) synced |
 
-**Total: 22 checks** (23 when `CONFLUENCE_PARENT_PAGE_ID` is set) — 19–20 positive (polled up to 3 min), 3 negative (run once after positives complete).
+**Total: 28 checks** (27 without `CONFLUENCE_PARENT_PAGE_ID`; 25–26 without `CONFLUENCE_BASE_URL`) — 25 positive (polled up to 3 min), 3 negative (run once after positives complete).
 
 ---
 
@@ -215,13 +272,14 @@ Verifies: the alias → native ID resolution pipeline works end-to-end; docs rea
 | Area | Gap |
 |------|-----|
 | ClickUp `list_id` alias | `list_id: alias:<name>` is not resolved by the processor — only `parent:` supports alias syntax. ClickUp alias routing is untested. |
-| Notion alias content | Only routing is verified for the alias Notion doc — no deeper block-by-block diff |
+| ClickUp doc mode | Not tested — only task list mode is covered |
 | Notion subpage | Content not verified for the Backend page — only parent routing is checked |
+| Notion alias content | Only routing is verified — no deeper block-by-block diff |
 | S3 hierarchy | Content not verified — only key existence is checked |
 | S3 flat | Only `FLAT_A.md` content is verified; `FLAT_B.md` (nested strip) is existence-only |
-| ClickUp doc mode | Not tested — only task list mode is covered |
+| Confluence | No content check for space-root mode — only page existence is verified |
 | Confluence parent | Skipped unless `CONFLUENCE_PARENT_PAGE_ID` is set in verify/.env |
-| Confluence content | Only `CONFLUENCE_TEST.md` body is verified; second and nested docs are existence-only |
+| Confluence link | Skipped unless `CONFLUENCE_BASE_URL` and `CONFLUENCE_SPACE_KEY` are set |
 | Frontmatter title | No dedicated test where filename ≠ `title:` frontmatter to isolate title resolution |
 | Update cycle | No test that edits a file and verifies the updated content replaces the old content |
 | Deletion | No test that removing a file from the repo causes it to be removed from the integration |
