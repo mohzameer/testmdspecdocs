@@ -135,6 +135,7 @@ async function getTasksInList(): Promise<ClickUpTask[]> {
     const data = await res.json() as { tasks?: ClickUpTask[] }
     const tasks = data.tasks ?? []
     dbg(`ClickUp → ${tasks.length} tasks:`, tasks.map(t => `"${t.name}" list=${t.list?.id} folder=${t.folder?.id}`))
+    console.log(`\n  [ClickUp list ${CLICKUP_LIST_ID}: ${tasks.length} task(s)${tasks.length ? ' — ' + tasks.map(t => `"${t.name}"`).join(', ') : ''}]`)
     return tasks
   } finally {
     clearTimeout(timer)
