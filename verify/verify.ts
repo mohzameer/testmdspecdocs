@@ -26,7 +26,7 @@ const NOTION_BACKEND_PAGE_ID  = 'cc69bd0f-98d7-4d6e-8701-72d92a920cf5'
 const CONFLUENCE_SPACE_KEY    = process.env.CONFLUENCE_SPACE_KEY!
 const CONFLUENCE_PARENT_PAGE_ID = process.env.CONFLUENCE_PARENT_PAGE_ID ?? null
 
-const POLL_TIMEOUT_MS  = 180_000
+const POLL_TIMEOUT_MS  = 90_000
 const POLL_INTERVAL_MS = 6_000
 const DEBUG = !!process.env.DEBUG
 const NO_POLL = !!process.env.NO_POLL
