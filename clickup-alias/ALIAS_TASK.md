@@ -8,3 +8,5 @@ Tests that `list_id: alias:clickup-tasks` in `.mdspecmap` resolves to the correc
 ClickUp list — verifying alias resolution for ClickUp integrations.
 
 Content-check: clickup-alias-verify-marker
+
+Updated: 2026-05-17 (new workspace)
