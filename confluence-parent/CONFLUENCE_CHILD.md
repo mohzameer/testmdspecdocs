@@ -2,7 +2,7 @@
 title: Confluence Child Document
 ---
 
-# Confluence Child Document
+# Confluence Child Documents
 
 This document is published under a specific Confluence parent page,
 configured via `parent: id:<pageId>` in the folder's `.mdspecmap`.
