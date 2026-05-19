@@ -2,7 +2,7 @@
 title: Confluence Link Document
 ---
 
-# Confluence Link Document
+# Confluence Link Documents
 
 Tests that `parent: link:<url>` resolves the Confluence page ID from the URL
 and routes the doc to the correct parent page — same destination as `confluence-parent/`
