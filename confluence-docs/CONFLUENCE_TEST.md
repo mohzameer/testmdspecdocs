@@ -2,7 +2,7 @@
 title: Confluence Test Document
 ---
 
-# Confluence Test Documents
+# Confluence Test Document
 
 This document tests the Confluence integration sync pipeline.
 
