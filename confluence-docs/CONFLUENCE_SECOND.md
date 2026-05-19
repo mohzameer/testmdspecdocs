@@ -2,7 +2,7 @@
 title: Confluence Second Document
 ---
 
-# Confluence Second Document
+# Confluence Second Documents
 
 This is the second test document for the Confluence integration.
 
