@@ -2,7 +2,7 @@
 title: Confluence Nested Document
 ---
 
-# Confluence Nested Documents
+# Confluence Nested Document
 
 This document is in a subfolder (`nested/`) of `confluence-docs/`.
 
